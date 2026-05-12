@@ -1,0 +1,95 @@
+.users-page {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.users-page__filters {
+  display: grid;
+  grid-template-columns: minmax(14rem, 2fr) repeat(3, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.users-page__summary,
+.users-page__pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.users-page__loading {
+  min-height: 18rem;
+  display: grid;
+  place-items: center;
+}
+
+.users-table {
+  overflow-x: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.users-table__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.users-table__table th,
+.users-table__table td {
+  padding: var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.users-table__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.users-table__identity {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.users-table__name {
+  color: var(--color-fg);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.users-table__name:hover {
+  color: var(--color-accent);
+}
+
+.users-table__email {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-sm);
+}
+
+.users-table__roles,
+.users-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 960px) {
+  .users-page__filters {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .users-page__filters,
+  .users-page__summary,
+  .users-page__pagination {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

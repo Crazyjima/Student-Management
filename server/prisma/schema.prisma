@@ -1,0 +1,354 @@
+// School Management System — Prisma schema (Phase 2)
+//
+// Conventions:
+//   - PKs: UUID v7 (time-ordered, native @db.Uuid)
+//   - Tables: snake_case via @@map
+//   - Columns: camelCase (matches Prisma model API)
+//   - Soft delete: deletedAt column, repository-enforced (no global extension)
+//   - Audit: createdAt / updatedAt on every entity; who-changed deferred
+//   - Email: lowercased VARCHAR(254) at app layer (no citext)
+ 
+generator client {
+  provider = "prisma-client-js"
+}
+ 
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+ 
+// =====================================================================
+// ENUMS
+// =====================================================================
+ 
+enum RoleName {
+  ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+  STAFF
+}
+ 
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+ 
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  WITHDRAWN
+  TRANSFERRED
+}
+ 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+ 
+enum GradeType {
+  EXAM
+  QUIZ
+  HOMEWORK
+  PROJECT
+  PARTICIPATION
+  FINAL
+}
+ 
+enum Term {
+  TERM_1
+  TERM_2
+  TERM_3
+  TERM_4
+}
+ 
+// =====================================================================
+// IDENTITY / RBAC
+// =====================================================================
+ 
+model User {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  email           String    @unique @db.VarChar(254)
+  passwordHash    String
+  firstName       String    @db.VarChar(100)
+  lastName        String    @db.VarChar(100)
+  phone           String?   @db.VarChar(32)
+  isActive        Boolean   @default(true)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  userRoles          UserRole[]
+  refreshTokens      RefreshToken[]
+  studentProfile     Student?
+  teacherProfile     Teacher?
+  recordedAttendance Attendance[]   @relation("AttendanceRecorder")
+  recordedGrades     Grade[]        @relation("GradeRecorder")
+ 
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("users")
+}
+ 
+model Role {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        RoleName @unique
+  description String?
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  userRoles UserRole[]
+ 
+  @@index([deletedAt])
+  @@map("roles")
+}
+ 
+// M:N join: a user can hold multiple roles (teacher + parent, etc.)
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+ 
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+ 
+// Phase 4 prep: refresh-token rotation. Stores SHA-256 hash, never the raw token.
+model RefreshToken {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  userId       String    @db.Uuid
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @db.Uuid
+  userAgent    String?   @db.VarChar(512)
+  ipAddress    String?   @db.VarChar(64)
+ 
+  createdAt DateTime @default(now())
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+ 
+// =====================================================================
+// PROFILES
+// =====================================================================
+ 
+model Student {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  userId         String    @unique @db.Uuid
+  studentNumber  String    @unique @db.VarChar(32)
+  dateOfBirth    DateTime? @db.Date
+  gender         Gender?
+  enrollmentDate DateTime  @default(now()) @db.Date
+  guardianName   String?   @db.VarChar(200)
+  guardianPhone  String?   @db.VarChar(32)
+  guardianEmail  String?   @db.VarChar(254)
+  address        String?
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments Enrollment[]
+  attendances Attendance[]
+  grades      Grade[]
+ 
+  @@index([deletedAt])
+  @@map("students")
+}
+ 
+model Teacher {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  userId         String   @unique @db.Uuid
+  employeeNumber String   @unique @db.VarChar(32)
+  hireDate       DateTime @default(now()) @db.Date
+  department     String?  @db.VarChar(100)
+  qualification  String?  @db.VarChar(200)
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  homeroomClasses Class[]   @relation("HomeroomTeacher")
+  subjects        Subject[] @relation("SubjectTeacher")
+ 
+  @@index([deletedAt])
+  @@index([department])
+  @@map("teachers")
+}
+ 
+// =====================================================================
+// ACADEMIC STRUCTURE
+// =====================================================================
+ 
+model Class {
+  id                String  @id @default(uuid(7)) @db.Uuid
+  name              String  @db.VarChar(100)
+  gradeLevel        Int
+  academicYear      String  @db.VarChar(16) // e.g. "2025-2026"
+  homeroomTeacherId String? @db.Uuid
+  capacity          Int?
+  room              String? @db.VarChar(64)
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  homeroomTeacher Teacher?     @relation("HomeroomTeacher", fields: [homeroomTeacherId], references: [id], onDelete: SetNull)
+  enrollments     Enrollment[]
+  attendances     Attendance[]
+ 
+  @@unique([name, academicYear])
+  @@index([deletedAt])
+  @@index([academicYear])
+  @@index([gradeLevel])
+  @@index([homeroomTeacherId])
+  @@map("classes")
+}
+ 
+model Subject {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  code        String  @unique @db.VarChar(32) // e.g. "MATH101"
+  name        String  @db.VarChar(120)
+  description String?
+  credits     Int?
+  teacherId   String? @db.Uuid
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  teacher Teacher? @relation("SubjectTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  grades  Grade[]
+ 
+  @@index([deletedAt])
+  @@index([teacherId])
+  @@map("subjects")
+}
+ 
+// =====================================================================
+// ACTIVITY: ENROLLMENTS / ATTENDANCE / GRADES
+// =====================================================================
+ 
+model Enrollment {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  studentId    String           @db.Uuid
+  classId      String           @db.Uuid
+  academicYear String           @db.VarChar(16)
+  status       EnrollmentStatus @default(ACTIVE)
+  enrolledAt   DateTime         @default(now())
+  withdrawnAt  DateTime?
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Restrict)
+ 
+  // A student can only be enrolled once per class per academic year
+  @@unique([studentId, classId, academicYear])
+  @@index([classId])
+  @@index([studentId])
+  @@index([deletedAt])
+  @@index([status])
+  @@map("enrollments")
+}
+ 
+model Attendance {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  studentId    String           @db.Uuid
+  classId      String           @db.Uuid
+  date         DateTime         @db.Date
+  status       AttendanceStatus
+  notes        String?
+  recordedById String           @db.Uuid
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  student    Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class      Class   @relation(fields: [classId], references: [id], onDelete: Restrict)
+  recordedBy User    @relation("AttendanceRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+ 
+  // One attendance row per student × class × day
+  @@unique([studentId, classId, date])
+  @@index([classId, date])
+  @@index([studentId, date])
+  @@index([deletedAt])
+  @@index([recordedById])
+  @@map("attendance")
+}
+ 
+model Grade {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  studentId    String    @db.Uuid
+  subjectId    String    @db.Uuid
+  type         GradeType
+  term         Term
+  academicYear String    @db.VarChar(16)
+  score        Decimal   @db.Decimal(6, 2)
+  maxScore     Decimal   @db.Decimal(6, 2)
+  weight       Decimal?  @db.Decimal(4, 2)
+  remarks      String?
+  recordedById String    @db.Uuid
+  recordedAt   DateTime  @default(now())
+ 
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+ 
+  student    Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject    Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  recordedBy User    @relation("GradeRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+ 
+  @@index([studentId, subjectId, term, academicYear])
+  @@index([subjectId])
+  @@index([recordedById])
+  @@index([deletedAt])
+  @@index([recordedAt])
+  @@map("grades")
+}
+ 
+// =====================================================================
+// IDEMPOTENCY (Phase 5+ uses this)
+// =====================================================================
+ 
+// Tracks one-shot mutation keys. Workflow:
+//   1. Client sends mutation with `Idempotency-Key` header
+//   2. Server checks this table; if hit + matching requestHash → return cached response
+//   3. If miss → process, then store key + response (with TTL via expiresAt)
+model IdempotencyKey {
+  key            String   @id @db.VarChar(128)
+  scope          String   @db.VarChar(64) // e.g. "grade.create", "fee.pay"
+  userId         String?  @db.Uuid
+  requestHash    String   @db.VarChar(128) // SHA-256 of normalized request body
+  responseStatus Int
+  responseBody   Json?
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+ 
+  @@index([expiresAt])
+  @@index([scope, userId])
+  @@map("idempotency_keys")
+}
